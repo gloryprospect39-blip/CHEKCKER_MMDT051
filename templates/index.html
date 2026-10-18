@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Myanmar Checkers AI</title>
+  <style>
+    :root {
+      --board-dark: #5b3a29;
+      --board-light: #d9b38c;
+      --piece-black: #111827;
+      --piece-white: #f3f4f6;
+      --piece-highlight: #fbbf24;
+      --board-size: min(72vw, 540px);
+    }
+    body {
+      font-family: Arial, sans-serif;
+      background: #111827;
+      color: #f9fafb;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .panel {
+      background: #1f2937;
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+      max-width: 760px;
+      width: calc(100% - 32px);
+    }
+    h1 {
+      margin-top: 0;
+      text-align: center;
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin: 16px 0 20px;
+      flex-wrap: wrap;
+    }
+    select, button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 1rem;
+    }
+    button {
+      background: #f59e0b;
+      color: #111827;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .board-wrap {
+      display: flex;
+      justify-content: center;
+      margin-top: 12px;
+    }
+    .board {
+      width: var(--board-size);
+      height: var(--board-size);
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      background: var(--board-dark);
+      border: 8px solid #d1d5db;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .square {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      aspect-ratio: 1;
+    }
+    .square.light { background: var(--board-light); }
+    .square.dark { background: var(--board-dark); }
+    .square.selected { outline: 4px solid var(--piece-highlight); outline-offset: -4px; }
+    .piece {
+      width: 72%;
+      height: 72%;
+      border-radius: 50%;
+      border: 3px solid rgba(0,0,0,0.25);
+      box-shadow: inset 0 2px 6px rgba(255,255,255,0.2), 0 4px 10px rgba(0,0,0,0.18);
+    }
+    .piece.black { background: var(--piece-black); color: white; }
+    .piece.white { background: var(--piece-white); color: #111827; }
+    .piece.king::after {
+      content: 'K';
+      font-size: 1.1rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      width: 100%;
+    }
+    .status {
+      text-align: center;
+      margin-top: 18px;
+      font-weight: 600;
+      min-height: 24px;
+    }
+    @media (max-width: 540px) {
+      .panel { padding: 16px; }
+      h1 { font-size: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>Myanmar Checkers AI</h1>
+    <div class="controls">
+      <label>
+        Difficulty:
+        <select id="difficulty">
+          <option value="easy">Easy</option>
+          <option value="medium" selected>Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </label>
+      <button id="new-game">New Game</button>
+    </div>
+    <div class="board-wrap">
+      <div id="board" class="board" aria-label="Myanmar Checkers board"></div>
+    </div>
+    <div id="status" class="status">Black to move</div>
+  </div>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+    const difficultyEl = document.getElementById('difficulty');
+    let boardState = [];
+    let selected = null;
+
+    function pieceClass(value) {
+      if (value === 0) return '';
+      const color = value > 0 ? 'black' : 'white';
+      const kind = Math.abs(value) === 2 ? ' king' : '';
+      return `piece ${color}${kind}`;
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = '';
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const cell = document.createElement('div');
+          cell.className = `square ${(r + c) % 2 === 0 ? 'light' : 'dark'} ${(selected && selected[0] === r && selected[1] === c) ? 'selected' : ''}`;
+          cell.dataset.row = r;
+          cell.dataset.col = c;
+
+          const value = boardState[r][c];
+          if (value !== 0) {
+            const piece = document.createElement('div');
+            piece.className = pieceClass(value);
+            cell.appendChild(piece);
+          }
+
+          cell.addEventListener('click', () => handleSquareClick(r, c));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function updateStatus(turn, winner) {
+      if (winner !== null) {
+        const labels = { 1: 'Black wins', 0: 'Draw', '-1': 'White wins' };
+        statusEl.textContent = labels[String(winner)] || 'Game over';
+        return;
+      }
+      statusEl.textContent = turn === 1 ? 'Black to move' : 'White to move';
+    }
+
+    function loadState() {
+      fetch('/api/state')
+        .then(response => response.json())
+        .then(data => {
+          boardState = data.board;
+          updateStatus(data.turn, data.winner);
+          renderBoard();
+        });
+    }
+
+    function handleSquareClick(row, col) {
+      const value = boardState[row][col];
+      if (selected) {
+        const from = selected;
+        fetch('/api/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: [from[0], from[1]], to: [row, col] })
+        }).then(r => r.json()).then(data => {
+          if (data.error) {
+            statusEl.textContent = data.error;
+            return;
+          }
+          boardState = data.board;
+          selected = null;
+          updateStatus(data.turn, data.winner);
+          renderBoard();
+          if (data.turn === -1) {
+            requestAiMove();
+          }
+        });
+      } else if (value !== 0) {
+        selected = [row, col];
+        renderBoard();
+      }
+    }
+
+    function requestAiMove() {
+      fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ difficulty: difficultyEl.value })
+      }).then(r => r.json()).then(data => {
+        if (data.board) {
+          boardState = data.board;
+          updateStatus(data.turn, data.winner);
+          renderBoard();
+        }
+      });
+    }
+
+    document.getElementById('new-game').addEventListener('click', () => {
+      selected = null;
+      fetch('/api/reset', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          boardState = data.board;
+          updateStatus(data.turn, data.winner);
+          renderBoard();
+        });
+    });
+
+    loadState();
+  </script>
+</body>
+</html>
